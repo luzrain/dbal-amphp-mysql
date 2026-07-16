@@ -52,9 +52,26 @@ final class AsyncConection extends DbalConnection
 
                 public function __destruct()
                 {
-                    $connection = $this->connection->getNativeConnection();
-                    \assert($connection instanceof MysqlConnection);
-                    AsyncDriver::releaseConnection($connection);
+                    // An unconnected clone has nothing checked out from the
+                    // pool. Calling getNativeConnection() on it would trigger
+                    // connect() -> Future::await inside a destructor/GC
+                    // context, which is a fatal, uncatchable FiberError under
+                    // Revolt (the loop's FiberLocal cleanup runs after its
+                    // error handler). Nothing to release: bail out.
+                    if (!$this->connection->isConnected()) {
+                        return;
+                    }
+
+                    try {
+                        $connection = $this->connection->getNativeConnection();
+                        \assert($connection instanceof MysqlConnection);
+                        AsyncDriver::releaseConnection($connection);
+                    } catch (\Throwable) {
+                        // Destructors must never throw in this runtime: during
+                        // worker shutdown the pool may already be closed and
+                        // push() throws — swallowing is safe, the process is
+                        // tearing the connections down anyway.
+                    }
                 }
             };
 
