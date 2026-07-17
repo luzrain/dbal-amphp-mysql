@@ -20,6 +20,7 @@ use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
 use Doctrine\DBAL\Statement;
 use Doctrine\DBAL\TransactionIsolationLevel;
+use Revolt\EventLoop;
 use Revolt\EventLoop\FiberLocal;
 
 final class AsyncConection extends DbalConnection
@@ -65,6 +66,33 @@ final class AsyncConection extends DbalConnection
                     try {
                         $connection = $this->connection->getNativeConnection();
                         \assert($connection instanceof MysqlConnection);
+
+                        if ($this->connection->isTransactionActive()) {
+                            // A transaction still open here means an error path
+                            // skipped its rollback. Never hand a mid-transaction
+                            // connection back to the pool — another fiber would
+                            // inherit its session state. Awaiting is illegal in
+                            // a destructor, so queue the cleanup: rollback (all
+                            // savepoints included) and only then release; if
+                            // even the rollback fails, close the connection so
+                            // the pool discards it.
+                            EventLoop::queue(static function () use ($connection): void {
+                                try {
+                                    $connection->query('ROLLBACK');
+                                } catch (\Throwable) {
+                                    $connection->close();
+                                }
+
+                                try {
+                                    AsyncDriver::releaseConnection($connection);
+                                } catch (\Throwable) {
+                                    // Pool already closed during shutdown.
+                                }
+                            });
+
+                            return;
+                        }
+
                         AsyncDriver::releaseConnection($connection);
                     } catch (\Throwable) {
                         // Destructors must never throw in this runtime: during

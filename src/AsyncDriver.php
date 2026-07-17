@@ -82,6 +82,12 @@ final class AsyncDriver extends AbstractMySQLDriver
             })
         ;
 
+        $initCommand = $params['driverOptions']['init_command'] ?? null;
+        $connector = new SocketMysqlConnector($socketConnector);
+        if ($initCommand !== null && $initCommand !== '') {
+            $connector = new InitCommandMysqlConnector($connector, $initCommand);
+        }
+
         /** @psalm-suppress ArgumentTypeCoercion */
         $pool = new MysqlConnectionPool(
             config: new MysqlConfig(
@@ -95,7 +101,7 @@ final class AsyncDriver extends AbstractMySQLDriver
             ),
             maxConnections: $maxConnections,
             idleTimeout: $idleTimeout,
-            connector: new SocketMysqlConnector($socketConnector),
+            connector: $connector,
         );
 
         $this->pop = (function (): MysqlConnection {
