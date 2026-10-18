@@ -22,8 +22,11 @@ $connectionParams = [
     'driverClass' => AsyncDriver::class,
     'wrapperClass' => AsyncConection::class,
     'driverOptions' => [
-        'max_connections' => 100,
+        'max_connections' => 15,
         'idle_timeout' => 60,
+        'connect_timeout' => 10,
+        'connect_retries' => 1,
+        'dns_record_type' => 'A',
     ],
 ];
 $conn = DriverManager::getConnection($connectionParams);
